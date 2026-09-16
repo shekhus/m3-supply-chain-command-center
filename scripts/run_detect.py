@@ -2,7 +2,8 @@
 
 Equivalent of `make detect DATE=2026-06-15`. No LLM, no writes: this is the honest floor of the system — what
 it knows before anything is narrated. `--all` shows the INFO findings too, with the reason each was capped,
-which is the view to use when arguing about a threshold.
+which is the view to use when arguing about a threshold. Each incident is followed by its top drivers: the
+finer segments the movement decomposes into, with the share of the performance change each one accounts for.
 """
 
 from __future__ import annotations
@@ -18,8 +19,9 @@ sys.path.insert(0, str(REPO_ROOT))
 from sqlalchemy import create_engine  # noqa: E402
 
 from app.config import get_settings  # noqa: E402
+from detect.attribute import attribute  # noqa: E402
 from detect.config import load_detect_config  # noqa: E402
-from detect.models import Anomaly  # noqa: E402
+from detect.models import Anomaly, Severity  # noqa: E402
 from detect.run import build_series, detect_range, incidents, load_frames, window_for  # noqa: E402
 from detect.series import SeriesError  # noqa: E402
 from metrics.runner import MetricsError  # noqa: E402
@@ -31,6 +33,7 @@ def main() -> int:
     parser.add_argument("--from", dest="from_date", type=date.fromisoformat, help="first day of a range")
     parser.add_argument("--to", dest="to_date", type=date.fromisoformat, help="last day of a range")
     parser.add_argument("--all", action="store_true", help="include INFO findings and why they were capped")
+    parser.add_argument("--no-why", action="store_true", help="skip attribution (faster)")
     parser.add_argument("--parquet", action="store_true", help="read data/metrics instead of Postgres")
     args = parser.parse_args()
 
@@ -58,6 +61,14 @@ def main() -> int:
     print(f"{from_date} .. {to_date}: {len(incidents(found))} incidents, {len(found)} findings")
     for anomaly in shown[:100]:
         print(_line(anomaly))
+        if args.no_why or anomaly.severity < Severity.WARN:
+            continue
+        result = attribute(frames, cfg, anomaly)
+        for driver in result.drivers:
+            print(f"        why: {driver.label:<44} {driver.rate_effect_pct:6.1f}% of the change "
+                  f"({driver.baseline_value:.4g} -> {driver.window_value:.4g})")
+        if result.note:
+            print(f"        why: {result.note}")
     if len(shown) > 100:
         print(f"  ... {len(shown) - 100} more")
     return 0
