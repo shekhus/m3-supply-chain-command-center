@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+data/
+evals/results/*.json
+!evals/results/.gitkeep
+*.sqlite
+backups/

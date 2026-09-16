@@ -1,0 +1,64 @@
+# Local stack: Postgres + API + Streamlit console.
+# Host ports are deliberately not Project A's (5432/8000/8501), so both stacks can run side by side.
+# Values come from .env when present; the defaults below are local-only development credentials.
+
+services:
+  db:
+    image: pgvector/pgvector:pg18  # Postgres 18; pgvector is here for the shared retrieval layer (B15-B17)
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-m3}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-m3}
+      POSTGRES_DB: ${POSTGRES_DB:-m3cc}
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-m3}:${POSTGRES_PASSWORD:-m3}@db:5432/${POSTGRES_DB:-m3cc}
+      API_KEYS: ${API_KEYS:-viewer:change-me-viewer,analyst:change-me-analyst,owner:change-me-owner}
+      LLM_PROVIDER: ${LLM_PROVIDER:-none}
+      LLM_MODEL: ${LLM_MODEL:-claude-sonnet-5}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      LLM_PRICE_IN_PER_MTOK: ${LLM_PRICE_IN_PER_MTOK:-0}
+      LLM_PRICE_OUT_PER_MTOK: ${LLM_PRICE_OUT_PER_MTOK:-0}
+      JIRA_MODE: ${JIRA_MODE:-mock}
+      GOLD_SOURCE: ${GOLD_SOURCE:-standalone}
+      DATA_DIR: data
+      CONSOLE_URL: ${CONSOLE_URL:-http://localhost:8511}
+    volumes:
+      # generated gold + ground truth, read-only (data/ is excluded from the image by .dockerignore)
+      - ./data:/app/data:ro
+    ports:
+      - "8010:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  console:
+    build: .
+    depends_on:
+      app:
+        condition: service_healthy
+    command: ["sh", "scripts/start_console.sh"]
+    environment:
+      API_BASE_URL: http://app:8000
+      APP_ROLE: console
+    ports:
+      - "8511:8501"
+
+volumes:
+  pgdata:

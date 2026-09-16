@@ -1,0 +1,44 @@
+[project]
+name = "m3-supply-chain-command-center"
+version = "0.1.0"
+description = "Operations command center: code computes, AI narrates with citations, a person approves."
+requires-python = ">=3.12"
+dependencies = [
+    "pandas>=3.0.5",
+    "numpy>=2.5.3",
+    "fastapi>=0.141.1",
+    "uvicorn[standard]>=0.53.0",
+    "pydantic>=2.13.5",
+    "sqlalchemy>=2.0.52",
+    "psycopg[binary]>=3.3.5",
+    "streamlit>=1.63.0",
+    "pyarrow>=25.0.1",
+    "pyyaml>=6.0.3",
+    "jinja2>=3.1.6",                        # templated fallback brief (B6)
+    "httpx>=0.28.1",
+    "python-dateutil>=2.9.0",
+    "langgraph>=1.2.11",                    # approval graph with a pause that survives a restart (B9)
+    "langgraph-checkpoint-postgres>=3.1.2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=9.1.1", "ruff>=0.16.7", "mypy>=2.3.1", "types-PyYAML"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = ["postgres: needs Postgres; skipped when unreachable unless REQUIRE_POSTGRES=1"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+extend-exclude = [".venv", "data"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["B008"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+exclude = ['\.venv', 'data']
