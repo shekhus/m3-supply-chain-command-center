@@ -95,7 +95,7 @@ def test_an_event_at_a_coarser_grain_still_matches_the_anomaly_underneath_it() -
 
 
 def test_a_company_total_wobble_does_not_get_credit_for_a_lane_collapse() -> None:
-    """Sharing no key with the seeded segment means it is a different question, however well the dates line up."""
+    """Sharing no key with the seeded segment makes it a different question, however the dates line up."""
     total = _event([_anomaly(DAY, grain="otif_total", segment={})])
     assert not matches(total, _spec())
 
@@ -170,7 +170,7 @@ def test_the_decoy_counts_against_precision_only_on_its_own_days() -> None:
 
     before = to_events([_anomaly(date(2026, 6, 24) + timedelta(days=i)) for i in range(3)])
     card_before = score(before, [decoy], (date(2026, 6, 1), date(2026, 7, 30)))
-    assert card_before.decoy_high_events == 0            # raised for its own reasons, days before the shutdown
+    assert card_before.decoy_high_events == 0     # raised for its own reasons, before the shutdown
 
 
 def test_the_brief_view_counts_only_what_a_person_would_have_been_shown() -> None:
