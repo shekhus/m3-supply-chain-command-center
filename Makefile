@@ -21,7 +21,7 @@ brief:                ## full run to the approval interrupt (DATE=YYYY-MM-DD)
 	$(PY) scripts/brief.py --date $(DATE)
 
 replay:               ## day-by-day detection vs ground truth (FROM=... TO=... [NARRATE_SAMPLE=n])
-	$(PY) scripts/replay.py --from $(FROM) --to $(TO) $(ARGS)
+	$(PY) scripts/run_replay.py --from $(FROM) --to $(TO) $(ARGS)
 
 eval:                 ## replay scoring + narration evals -> evals/REPORT.md
 	$(PY) evals/run_evals.py $(ARGS)

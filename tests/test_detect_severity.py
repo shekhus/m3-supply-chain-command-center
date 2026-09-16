@@ -54,20 +54,30 @@ def test_no_detector_means_no_anomaly(cfg: DetectConfig) -> None:
 
 
 def test_severity_is_the_strongest_thing_any_detector_said(cfg: DetectConfig) -> None:
-    anomaly = _combine(cfg, hit=_hit(Severity.WARN), shift=_shift(Severity.HIGH))
+    anomaly = _combine(cfg, hit=_hit(Severity.HIGH), shift=_shift(Severity.WARN))
     assert anomaly is not None and anomaly.severity is Severity.HIGH
     assert {s.detector for s in anomaly.detectors} == {"baseline", "threshold", "cusum"}
 
 
-def test_the_baseline_alone_cannot_raise_an_incident(cfg: DetectConfig) -> None:
-    """One day is a data point. HIGH needs consecutive days (threshold) or an accumulated shift (CUSUM)."""
+def test_only_a_policy_breach_makes_an_incident(cfg: DetectConfig) -> None:
+    """Statistics say a thing changed; policy says it matters. Both detectors agreeing is still only a WARN.
+
+    Measured in the replay: without this rule the statistical detectors produced 322 of 365 HIGH flags, nearly
+    all of them real movements nobody needed waking for (docs/decisions.md B-006).
+    """
     alone = _combine(cfg)
     assert alone is not None and alone.severity is Severity.WARN
-    assert alone.suppressed_reason is not None and "corroborating" in alone.suppressed_reason
+    assert alone.suppressed_reason is not None and "policy threshold" in alone.suppressed_reason
 
-    corroborated = _combine(cfg, hit=_hit())
-    assert corroborated is not None and corroborated.severity is Severity.HIGH
-    assert corroborated.suppressed_reason is None
+    both_statistical = _combine(cfg, shift=_shift(Severity.HIGH))
+    assert both_statistical is not None and both_statistical.severity is Severity.WARN
+
+    warned_by_policy = _combine(cfg, hit=_hit(Severity.WARN), shift=_shift(Severity.HIGH))
+    assert warned_by_policy is not None and warned_by_policy.severity is Severity.WARN
+
+    breached = _combine(cfg, hit=_hit(Severity.HIGH))
+    assert breached is not None and breached.severity is Severity.HIGH
+    assert breached.suppressed_reason is None
 
 
 def test_a_holiday_dip_is_reported_and_capped_below_incident(cfg: DetectConfig) -> None:

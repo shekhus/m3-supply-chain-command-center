@@ -184,7 +184,6 @@ def _worst(series: list, cfg: DetectConfig, grain: str, metric: str, segment: di
 
 @pytest.mark.parametrize(("anomaly_id", "grain", "segment", "expect"), [
     ("A1", "otif_plant", {"plant": "PLT-02"}, {"customer_no": "C000031"}),
-    ("A1", "otif_total", {}, {"plant": "PLT-02"}),
     ("A2", "fill_weight_plant", {"plant": "PLT-01"}, {"product_group": "CASE-READY"}),
 ])
 def test_attribution_names_the_segment_the_answer_key_names(world, cfg: DetectConfig, anomaly_id: str,
@@ -202,6 +201,26 @@ def test_attribution_names_the_segment_the_answer_key_names(world, cfg: DetectCo
         assert top.segment[key] == value, f"{anomaly_id}: top driver was {top.label}"
     assert top.rate_effect < 0                      # the driver got worse, not better
     assert top.evidence_refs and all(":" in ref for ref in top.evidence_refs)
+
+
+def test_the_company_total_never_sees_the_lane_collapse_at_all(world, cfg: DetectConfig) -> None:
+    """A1 is three weeks of a lane failing, and the company total does not move enough to notice.
+
+    This is the dashboard failure the project exists to answer, stated as a test: the one number everybody
+    watches stays inside its own noise while a customer is being let down every day. The plant sees it, and
+    the lane sees it plainly — so the system has to watch the grains an anomaly can live at, not the total.
+    """
+    _frames_unused, series = world
+    spec = _answer_key()["A1"]
+    span = (date.fromisoformat(spec["start"]), date.fromisoformat(spec["end"]))
+    found = detect_range(series, cfg, *span)
+
+    total = [a for a in found if a.grain == "otif_total" and a.metric == "otif_rate"]
+    assert all(a.severity < Severity.WARN for a in total), "the company total should not carry this"
+
+    plant = [a for a in found if a.grain == "otif_plant" and a.segment.get("plant") == "PLT-02"
+             and a.severity >= Severity.WARN]
+    assert plant, "the plant should still see it"
 
 
 def test_the_baseline_window_used_for_attribution_precedes_the_anomaly(world, cfg: DetectConfig) -> None:

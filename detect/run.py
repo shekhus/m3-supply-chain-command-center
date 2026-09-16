@@ -73,7 +73,7 @@ def _evaluate_day(series: SegmentSeries, i: int, cfg: DetectConfig) -> Anomaly |
             points=int(series.points[i]) if series.points is not None else 0,
             value=float(series.values[i]), delta=float(series.delta[i]), z=float(series.z[i]),
             dow_offset=0.0, excluded_holidays=0)
-    hit = threshold.evaluate(series, day, g.metric, cfg)
+    hit = threshold.evaluate(series, day, g.metric, cfg, g.name)
     shift = cusum.evaluate(series, day, cfg)
     return severity.combine(g, series.segment, day, float(series.values[i]), float(series.volumes[i]),
                             base, hit, shift, cfg, series.volume_scale)

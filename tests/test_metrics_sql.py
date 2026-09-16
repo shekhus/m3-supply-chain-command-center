@@ -178,7 +178,8 @@ def test_a_policy_missing_a_section_is_refused(tmp_path: Path) -> None:
 
 def test_the_repo_policy_carries_what_later_weeks_read() -> None:
     policy = runner.load_policy(POLICY)
-    assert policy["thresholds"]["otif_rate"]["high"] == 0.90
+    assert policy["thresholds"]["otif_rate"]["high"] == 0.78   # set from the measured distribution (B-006)
+    assert policy["threshold_overrides"]["otif_lane"]["otif_rate"]["window_days"] == 7
     assert policy["seasonality"]["day_of_week_adjust"] is True
     assert "2026-07-03" in policy["seasonality"]["known_holidays"]  # the decoy's week
     assert set(policy["allowed_actions"]) >= {"otif_drop", "fill_rate_drop", "yield_variance"}

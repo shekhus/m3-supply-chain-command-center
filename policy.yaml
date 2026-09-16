@@ -10,13 +10,45 @@ metrics:
   at_risk_days: 5               # lb_at_risk_within_5d: lots expiring within this many days
 
 thresholds:
-  otif_rate:           { warn: 0.92, high: 0.90, consecutive_days: 3, direction: down }
+  # The default line for each metric, at the coarsest grain it is watched at. Every level here was set from the
+  # measured distribution of the series it governs (roughly: warn at the worst ~5% of days, high at the worst
+  # ~2%), because the first draft of this file was guesswork and the replay showed it: OTIF's "high" line of
+  # 0.90 sat within a rounding error of the median, so the rule fired on half of all days and the brief was
+  # noise. A threshold has to be drawn where the business actually operates. See docs/decisions.md B-006.
+  otif_rate:           { warn: 0.82, high: 0.78, consecutive_days: 3, direction: down }
   fill_rate_weight:    { warn: 0.97, high: 0.95, consecutive_days: 2, direction: down }
   fill_rate_count:     { warn: 0.97, high: 0.95, consecutive_days: 2, direction: down }
   yield_variance_pct:  { warn_abs: 1.5, high_abs: 3.0, consecutive_days: 2, direction: both }
   inventory_age_days:  { warn: 6.0, high: 9.0, consecutive_days: 2, direction: up }
-  lb_at_risk_within_5d: { warn: 1000, high: 2000, consecutive_days: 1, direction: up }
-  open_backlog_lines:  { warn_z: 2.0, high_z: 3.0, consecutive_days: 2, direction: up }
+  lb_at_risk_within_5d: { warn: 3000, high: 3700, consecutive_days: 2, direction: up }
+  open_backlog_lines:  { warn_z: 2.0, consecutive_days: 2, direction: up }
+  # No HIGH line for backlog, and this one was measured rather than guessed. A queue is autocorrelated and
+  # mechanically seasonal - nothing ships over a shutdown, so the backlog builds on its own - and the replay
+  # showed a z-score cannot tell the difference: the seeded order surge (A6) peaks at z=2.81, while ordinary
+  # swings reach 4.09, 4.39 and 5.04. Any line that admits the real one admits all of them. So backlog is
+  # watched and reported at WARN, and nobody is woken for it until there is a measure that discriminates -
+  # level against throughput, or a week-over-week comparison at the same weekday (docs/decisions.md B-006).
+
+threshold_overrides:
+  # A line drawn for the company is not the line for one lane. Each grain's rule is set from that grain's own
+  # measured distribution; anything not named here inherits the default above.
+  otif_plant:
+    # Plants run at a median of 0.909 and dip to 0.75 in the worst 5% of days.
+    otif_rate:        { warn: 0.75, high: 0.68, consecutive_days: 3 }
+  otif_lane:
+    # A single customer's lane ships a handful of lines a day, so its rate is mostly 0 or 1 and an absolute
+    # line means nothing: the median lane-day is 1.00 and the 10th percentile is 0.00. The line for a lane is
+    # drawn against its own normal instead, and read over a week rather than a day — a lane's seven-day rate
+    # sitting 20 points below its own 28-day norm, two days running. That is a sentence an operations lead can
+    # argue with, and it is the number they would judge the lane by. Volume floors still apply, measured over
+    # the same week, so a lane that shipped twice cannot trip it.
+    otif_rate:        { warn: null, high: null, warn_drop: 0.12, high_drop: 0.20,
+                        window_days: 7, consecutive_days: 2 }
+  fill_weight_group:
+    # Plant x product group: worst 2% of days are below 0.952, worst 1% below 0.933.
+    fill_rate_weight: { warn: 0.95, high: 0.93, consecutive_days: 3 }
+  fill_count_group:
+    fill_rate_count:  { warn: 0.95, high: 0.93, consecutive_days: 3 }
 
 seasonality:
   # A5 is a real dip over a holiday week. A detector without these two settings will flag it HIGH and lose
@@ -35,9 +67,13 @@ detection:
   z: { warn: 2.0, high: 3.0 }   # day-of-week adjusted z-score from detect/baseline.py
   cusum: { k: 0.5, h: 5.0 }     # slack in standard deviations, and the decision interval
   holiday_max_severity: WARN    # a day inside a holiday window can never be an incident (the A5 decoy)
-  uncorroborated_max_severity: WARN   # the day-over-day detector alone cannot raise an incident: one day is a
-                                      # data point, not a trend. HIGH needs the threshold rule (which requires
-                                      # consecutive days) or CUSUM (which requires an accumulated shift).
+  statistical_max_severity: WARN
+  # What separates "unusual" from "an incident". The statistical detectors - the day-over-day baseline and the
+  # CUSUM change-point - can raise a finding to WARN on their own: something moved, somebody should look. Only
+  # a breach of a line in this file makes it HIGH, because only this file says what the business considers
+  # unacceptable. Measured: without this rule the statistical detectors produced 322 of the 365 HIGH flags in
+  # the first replay, nearly all of them real movements that nobody needed woken up for (docs/decisions.md
+  # B-006). Statistics say a thing changed; policy says it matters.
   min_std:
     # A floor under the standard deviation, so a series that has been flat for a month cannot produce an
     # enormous z on its first ordinary wobble.

@@ -156,6 +156,8 @@ class SegmentSeries:
     z: np.ndarray | None = None
     points: np.ndarray | None = None
     valid: np.ndarray | None = None
+    _means: dict[tuple[int, bool], np.ndarray] = field(default_factory=dict, repr=False)
+    _counts: dict[tuple[int, bool], np.ndarray] = field(default_factory=dict, repr=False)
 
     def __len__(self) -> int:
         return len(self.dates)
@@ -173,6 +175,38 @@ class SegmentSeries:
             weekday=np.array([d.weekday() for d in dates], dtype=np.int64),
             holiday=np.array([is_holiday(d) for d in dates], dtype=bool),
             index={d: i for i, d in enumerate(dates)})
+
+    def weighted_means(self, days: int, inclusive: bool = True) -> np.ndarray:
+        """Each day's volume-weighted mean over the trailing `days`, computed once and kept.
+
+        The windowed threshold rules ask for this on every day, for every line they test, and again for each
+        day they walk back to count a run. Recomputed each time it made the detection pass eight times slower;
+        the answer only depends on the day, so it is worked out once per series.
+        """
+        key = (days, inclusive)
+        cached = self._means.get(key)
+        if cached is not None:
+            return cached
+        out = np.full(len(self.dates), np.nan)
+        counts = np.zeros(len(self.dates), dtype=np.int64)
+        for i in range(len(self.dates)):
+            window = self.window(i, days) if not inclusive else slice(self.window(i, days - 1).start, i + 1)
+            keep = ~self.holiday[window]
+            values, volumes = self.values[window][keep], self.volumes[window][keep]
+            counts[i] = len(values)
+            if len(values) == 0:
+                continue
+            total = float(volumes.sum())
+            out[i] = (values * volumes).sum() / total if total > 0 else values.mean()
+        self._means[key], self._counts[key] = out, counts
+        return out
+
+    def weighted_counts(self, days: int, inclusive: bool = True) -> np.ndarray:
+        """How many trading days went into each `weighted_means` figure — holidays are not among them."""
+        key = (days, inclusive)
+        if key not in self._counts:
+            self.weighted_means(days, inclusive)
+        return self._counts[key]
 
     def window(self, i: int, days: int) -> slice:
         """The `days` calendar days before day `i` — by date, not by position: missing days stay missing."""

@@ -15,7 +15,7 @@ from synthetic import START, config_with, enriched, series, weekly
 from app.config import REPO_ROOT
 from detect import cusum, threshold
 from detect.baseline import baseline, enrich
-from detect.config import DetectConfig, load_detect_config
+from detect.config import DetectConfig, Threshold, load_detect_config
 from detect.models import Severity
 from detect.series import Grain
 
@@ -100,8 +100,21 @@ def test_enrich_gives_every_day_the_same_baseline_it_would_get_alone(cfg: Detect
 # --- threshold --------------------------------------------------------------------------------
 
 
-def test_a_hard_rule_fires_only_after_the_policys_consecutive_days(cfg: DetectConfig) -> None:
-    """OTIF high is 0.90 for 3 consecutive days: two bad days are a Tuesday, three are an incident."""
+def with_rule(cfg: DetectConfig, rule: Threshold, metric: str = "otif_rate") -> DetectConfig:
+    """A config carrying one rule of our own.
+
+    These tests are about the threshold *engine* — when a run starts, what breaks it, which line wins — not
+    about the levels the business happens to have chosen this week. Asserting against the repo's policy made
+    them fail the moment those levels were set from measured data (docs/decisions.md B-006), which is a test
+    breaking for the wrong reason.
+    """
+    return config_with(cfg, thresholds={**cfg.thresholds, metric: rule}, overrides={})
+
+
+
+def test_a_hard_rule_fires_only_after_its_consecutive_days(cfg: DetectConfig) -> None:
+    """A line at 0.90 for 3 consecutive days: two bad days are a Tuesday, three are an incident."""
+    cfg = with_rule(cfg, Threshold(warn=0.92, high=0.90, consecutive_days=3, direction="down"))
     values = [0.95] * 28 + [0.88, 0.88, 0.88]
     s = enriched(values, cfg)
     second, third = START + timedelta(days=29), START + timedelta(days=30)
@@ -114,6 +127,7 @@ def test_a_hard_rule_fires_only_after_the_policys_consecutive_days(cfg: DetectCo
 
 def test_a_missing_day_breaks_the_run_rather_than_bridging_it(cfg: DetectConfig) -> None:
     """A metric that was not published is not evidence of a breach on the day it is missing."""
+    cfg = with_rule(cfg, Threshold(warn=0.92, high=0.90, consecutive_days=3, direction="down"))
     values = [0.95] * 28 + [0.88] * 5
     gap = START + timedelta(days=29)
     s = enriched(values, cfg, skip=[gap])
@@ -124,6 +138,7 @@ def test_a_missing_day_breaks_the_run_rather_than_bridging_it(cfg: DetectConfig)
 
 
 def test_the_warn_line_fires_where_the_high_line_does_not(cfg: DetectConfig) -> None:
+    cfg = with_rule(cfg, Threshold(warn=0.92, high=0.90, consecutive_days=3, direction="down"))
     s = enriched([0.95] * 28 + [0.915, 0.915, 0.915], cfg)
     hit = threshold.evaluate(s, START + timedelta(days=30), "otif_rate", cfg)
     assert hit is not None and hit.severity is Severity.WARN and hit.level == 0.92
@@ -131,6 +146,8 @@ def test_the_warn_line_fires_where_the_high_line_does_not(cfg: DetectConfig) -> 
 
 def test_a_two_sided_rule_fires_on_a_positive_swing_too(cfg: DetectConfig) -> None:
     """Yield variance is bad in both directions: output far above standard is a measurement problem."""
+    cfg = with_rule(cfg, Threshold(warn_abs=1.5, high_abs=3.0, consecutive_days=2, direction="both"),
+                    "yield_variance_pct")
     grain = Grain("y", "daily_yield", ("plant",), "yield_variance_pct", "input_lb", "both")
     s = enriched([0.2] * 28 + [4.0, 4.0], cfg, metric="yield_variance_pct", grain=grain, volume=5000.0)
     hit = threshold.evaluate(s, START + timedelta(days=29), "yield_variance_pct", cfg)
@@ -139,6 +156,8 @@ def test_a_two_sided_rule_fires_on_a_positive_swing_too(cfg: DetectConfig) -> No
 
 def test_a_z_based_rule_reads_the_segments_own_history(cfg: DetectConfig) -> None:
     """400 open lines is routine at one plant and alarming at another, so backlog's rule is in sigmas."""
+    cfg = with_rule(cfg, Threshold(warn_z=2.0, high_z=3.0, consecutive_days=2, direction="up"),
+                    "open_backlog_lines")
     grain = Grain("b", "daily_backlog_plant", ("plant",), "open_backlog_lines", "open_backlog_lines", "up")
     values = [300 + (i % 5) for i in range(28)] + [480, 480]
     s = enriched(values, cfg, metric="open_backlog_lines", grain=grain)

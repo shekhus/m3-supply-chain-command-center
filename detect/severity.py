@@ -7,9 +7,9 @@ that flags everything is the same as a detector that flags nothing:
    finding is recorded at INFO and never becomes an incident.
 2. **Immaterial movement.** A 0.3-point move on a 99% series can be statistically extreme and operationally
    irrelevant. Below `min_magnitude` it is INFO.
-3. **No corroboration.** The baseline detector on its own sees one day. A day is a data point; an incident is
-   a trend. Without the threshold rule (which needs consecutive days) or CUSUM (which needs an accumulated
-   shift) agreeing, the finding is capped at `uncorroborated_max_severity`.
+3. **No policy breach.** The statistical detectors say a thing moved; they cannot say it matters. A finding
+   they raise on their own is capped at `statistical_max_severity` (WARN) — worth a look, not worth an
+   interruption. HIGH means a line in policy.yaml was crossed for as long as that line demands.
 4. **Holiday allowance.** A day inside a holiday window is capped at `holiday_max_severity` (WARN). The dip is
    real and is still reported — it is not deleted — but it is not an incident, because the plants were shut.
    This is A5: the answer key counts it as a false positive only if it is raised HIGH.
@@ -88,10 +88,10 @@ def _cap(raw: Severity, as_of: date, metric: str, volume: float, magnitude: floa
         return Severity.INFO, f"volume {volume:.0f} below the floor for {metric}"
     if magnitude < cfg.floor(cfg.min_magnitude, metric, 0.0):
         return Severity.INFO, f"movement {magnitude:.4g} below the material change floor for {metric}"
-    if {s.detector for s in signals} == {"baseline"}:
-        ceiling = SEVERITY_BY_NAME[cfg.uncorroborated_max_severity]
+    if not any(s.detector == "threshold" and s.severity is Severity.HIGH for s in signals):
+        ceiling = SEVERITY_BY_NAME[cfg.statistical_max_severity]
         if raw > ceiling:
-            return ceiling, "single-day movement with no corroborating detector"
+            return ceiling, "a statistical shift, with no policy threshold breached"
     if cfg.is_holiday(as_of):
         ceiling = SEVERITY_BY_NAME[cfg.holiday_max_severity]
         if raw > ceiling:

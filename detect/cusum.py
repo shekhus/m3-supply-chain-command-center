@@ -11,6 +11,10 @@ slack in standard deviations (drifts smaller than k are ignored), `h` the decisi
 The change point is the day the accumulation last started from zero — the answer to "when did this begin?",
 which is what lead time is measured from and what the brief says out loud. Holidays are skipped: a shutdown is
 not a shift, and letting one push the accumulator would make every January look like a change point.
+
+**The accumulator resets when it signals**, as the procedure requires. Without the reset a single shift keeps
+the statistic above the decision interval for as long as the shift lasts, and the detector reports the same
+change every day for a fortnight — which is how a change-point detector turns into a stuck alarm.
 """
 
 from __future__ import annotations
