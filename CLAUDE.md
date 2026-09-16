@@ -113,4 +113,4 @@ Windows: use Git Bash or the `python scripts/<name>.py` equivalents in `scripts/
 
 ## Current status
 
-`STATUS: week 6 — scaffold not started`
+`STATUS: week 6 — B-1 scaffold done: schemas gold/metrics/ops (migration 0001), settings (GOLD_SOURCE, POLICY_FILE, JIRA_MODE), migration runner, role auth, lint, hygiene guard, compose on 5433/8010/8511, CI green on GitHub Actions (private repo shekhus/m3-supply-chain-command-center). 9 tests. Next: B-2 standalone gold generator with seeded anomalies + ground_truth/anomalies.json; B-3 metric SQL layer + policy.yaml + `make metrics`. Week-6 DoD: `make metrics` populates every daily metric table, tests green.`
