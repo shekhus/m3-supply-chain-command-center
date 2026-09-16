@@ -1,0 +1,46 @@
+# Policy (plan §3.4, CLAUDE.md principle 4). Thresholds, seasonality and what may be done about each kind of
+# anomaly. Enforced in code — detect/threshold.py reads the thresholds, act/policy_gate.py reads the allowed
+# actions — and never widened from code or from a prompt. Changing behaviour means changing this file.
+version: 1
+
+metrics:
+  # The metric definitions themselves live in SQL (metrics/sql). These are the constants that SQL reads, so a
+  # tolerance is stated once and used everywhere.
+  weight_tolerance: 0.02        # catch-weight items count as in full within 2% of ordered weight
+  at_risk_days: 5               # lb_at_risk_within_5d: lots expiring within this many days
+
+thresholds:
+  otif_rate:           { warn: 0.92, high: 0.90, consecutive_days: 3, direction: down }
+  fill_rate_weight:    { warn: 0.97, high: 0.95, consecutive_days: 2, direction: down }
+  fill_rate_count:     { warn: 0.97, high: 0.95, consecutive_days: 2, direction: down }
+  yield_variance_pct:  { warn_abs: 1.5, high_abs: 3.0, consecutive_days: 2, direction: both }
+  inventory_age_days:  { warn: 6.0, high: 9.0, consecutive_days: 2, direction: up }
+  lb_at_risk_within_5d: { warn: 1000, high: 2000, consecutive_days: 1, direction: up }
+  open_backlog_lines:  { warn_z: 2.0, high_z: 3.0, consecutive_days: 2, direction: up }
+
+seasonality:
+  # A5 is a real dip over a holiday week. A detector without these two settings will flag it HIGH and lose
+  # precision; that is the point of the decoy.
+  day_of_week_adjust: true
+  baseline_days: 28
+  known_holidays: ["2025-11-27", "2025-11-28", "2025-12-24", "2025-12-25", "2026-01-01",
+                   "2026-05-25", "2026-07-03", "2026-07-04", "2026-09-07"]
+  holiday_window_days: 2        # days either side of a holiday that inherit the holiday's allowance
+
+allowed_actions:
+  # anomaly type → the action types a person may be asked to approve. Anything else is rejected in code before
+  # approval is requested, and logged as a policy violation.
+  otif_drop:         [jira_ticket, internal_update]
+  fill_rate_drop:    [jira_ticket, investigation]
+  yield_variance:    [investigation]
+  inventory_at_risk: [internal_update, jira_ticket]
+  backlog_build:     [jira_ticket, internal_update]
+
+limits:
+  max_actions_per_brief: 5
+  suppress_if_open_ticket_days: 7   # same anomaly, open ticket within this window → no duplicate action
+  max_items_per_brief: 6
+
+freshness:
+  # Gold older than this is disclosed at the top of the brief and marks affected items.
+  stale_after_days: 1
