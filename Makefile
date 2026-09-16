@@ -15,7 +15,7 @@ metrics:              ## load gold and run metrics/sql in order -> metrics.daily
 	$(PY) scripts/run_metrics.py $(ARGS)
 
 detect:               ## detectors + attribution for one day, no LLM (DATE=YYYY-MM-DD)
-	$(PY) scripts/detect.py --date $(DATE)
+	$(PY) scripts/run_detect.py --date $(DATE) $(ARGS)
 
 brief:                ## full run to the approval interrupt (DATE=YYYY-MM-DD)
 	$(PY) scripts/brief.py --date $(DATE)

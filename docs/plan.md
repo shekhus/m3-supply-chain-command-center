@@ -288,6 +288,144 @@ Failure analysis section: for every missed fault or wrong mapping, one line — 
 
 **Interview keywords:** canonical schema · data profiling · schema fingerprinting · lineage · idempotency · exception queue · versioned mappings · semantic layer · reconciliation · deterministic validation · heuristic baseline · human confirmation.
 
+## 3. Project B — M3 Supply-Chain Command Center
+
+### 3.1 Discovery brief — PUBLIC version
+
+| Field | Entry |
+|---|---|
+| **Customer** | Prairie Bend Foods (same fictional customer) |
+| **Users** | VP Supply Chain, 3 plant operations leads, logistics manager, BI developer (receives tickets) |
+| **Current workflow** | Leaders open 8–10 dashboards each morning. When something looks red, someone investigates by hand, decides whether it matters, and raises a ticket or emails a plant. Time from signal to action: often days. |
+| **Pain point** | Red numbers are noticed late or not at all; investigation is manual; the same three questions get asked every morning and answered inconsistently |
+| **Systems involved** | Gold tables from Project A (or equivalent), ticketing (Jira), email/Slack |
+| **Constraints** | AI must not compute metrics; every statement traceable to a metric; nothing sent or created without approval; plant managers see only their plant; nothing posts to M3 |
+| **Success metric** | Every morning, a brief that flags the right movements (measured by replay), attributes them to the right segment, cites every claim, and produces an approved action within the same day |
+
+### 3.3 Architecture
+
+```
+  gold.* (Project A) ── or ── synth/gold_with_anomalies/   (standalone mode)
+            │
+            ▼
+   ┌─────────────────┐  SQL, in code            ┌─────────────────────────┐
+   │ 1 METRIC LAYER  │─────────────────────────▶│ metrics.daily_*         │
+   │ otif, fill rate │                          │ by plant/customer/lane/ │
+   │ backlog, yield, │                          │ line/product_group/lot  │
+   │ inventory age   │                          └───────────┬─────────────┘
+   └─────────────────┘                                      │
+            ▼                                               ▼
+   ┌─────────────────┐   rolling baseline (DoW-adjusted) + policy.yaml thresholds + CUSUM
+   │ 2 DETECT        │──▶ anomalies[] with severity, window, magnitude
+   │ 3 ATTRIBUTE     │──▶ drivers[] : segment contributions to the delta
+   └─────────────────┘
+            ▼
+   ┌─────────────────┐   evidence_pack.json = {metrics, anomalies, drivers, freshness, windows}
+   │ 4 PERMISSION    │──▶ filtered to the recipient's plants BEFORE the model sees it
+   │   FILTER        │
+   └─────────────────┘
+            ▼
+   ┌─────────────────┐   LLM writes brief JSON: items[] → claims[] each with metric_ref
+   │ 5 NARRATE       │──▶ VALIDATOR (code): every claim cites a metric in the pack; every
+   │   + VALIDATE    │    number matches the pack within rounding; stale data disclosed.
+   └─────────────────┘    Fail → regenerate once → templated (no-LLM) brief fallback
+            ▼
+   ┌─────────────────┐   LangGraph: draft_actions → policy_gate → [interrupt] → execute
+   │ 6 ACT           │──▶ Jira ticket / investigation / update — drafted, policy-checked
+   │ 7 APPROVE       │──▶ Streamlit console: Approve · Edit · Reject; state in Postgres
+   └─────────────────┘
+            ▼
+      deliver brief (email/Slack) · ops.llm_calls · ops.tool_calls · ops.runs · replay harness
+```
+
+### 3.4 Features
+
+| # | Feature | Implementation | Playbook principle |
+|---|---|---|---|
+| B1 | **Metric layer** | SQL models in `metrics/sql/` (plain SQL files run in order; dbt is optional later). Metrics: `otif_rate`, `fill_rate_count`, `fill_rate_weight`, `open_backlog_lines`, `yield_variance_pct`, `inventory_age_days`, `lb_at_risk_within_n_days` | §10.3 — code calculates |
+| B2 | **Detectors** (three, all in code) | (a) rolling 28-day baseline with day-of-week adjustment → z-score; (b) `policy.yaml` hard thresholds (e.g. OTIF < 90% three consecutive days → HIGH; lot within 5 days of expiry and > 2,000 lb → HIGH); (c) CUSUM change-point on rates. Severity = max over detectors, tie-broken by magnitude × volume | §10.2 |
+| B3 | **Attribution** | For a rate metric, decompose the period-over-period delta into segment contributions (volume-weighted); rank top 3 drivers; produce "PLT-02 → C000031 lane accounts for 71% of the OTIF drop" as a *computed* number | §10.2 |
+| B4 | **Evidence pack** | Single JSON per run: metrics table, anomalies, drivers, data freshness per source, windows used. This is the only thing the LLM ever sees | §10.3 — provenance |
+| B5 | **Permission filter** | `users(role, plants[])`. Pack filtered to allowed plants before narration. Leadership role sees all | Project 1 §6.3 |
+| B6 | **Grounded narration** | Prompt returns strict JSON: `items[{headline, why, claims[{text, metric_ref, window, value}], severity}]`. **Validator in code:** (1) every `metric_ref` exists in the pack; (2) every number in `text` matches `value` within rounding; (3) if any source is stale, the brief must include a freshness line; (4) no item without at least one claim. Fail → one regeneration with the validator's error → then **templated fallback** brief (Jinja over the pack, zero LLM) | §10.3 — narrate, never calculate |
+| B7 | **Action drafting** | Per anomaly: `actions[{type ∈ {jira_ticket, investigation, internal_update}, title, body, assignee_hint, evidence_refs[]}]`. Bodies pre-filled from the evidence pack | §10.2 close the loop |
+| B8 | **Policy gate (code)** | `policy.yaml` maps anomaly type → allowed action types. Anything else (e.g. "adjust price", "update M3") is rejected before approval is even requested. Also: max actions per brief; duplicate-action suppression (same anomaly, open ticket) | §7.3A |
+| B9 | **Approval flow (LangGraph)** | Graph: `build_pack → narrate → validate → draft_actions → policy_gate → [interrupt_before: execute] → execute → record`. Postgres checkpointer so a brief paused on Monday resumes on Tuesday after restart. States persisted: `PENDING_APPROVAL → APPROVED/EDITED/REJECTED → EXECUTED/FAILED` | §7.3B |
+| B10 | **Jira adapter** | `JIRA_MODE=mock` (writes to `ops.mock_jira`) or `live` (Jira Cloud REST). Timeout → action `FAILED_RETRYABLE`, retried by the next run, alert raised | §11.5 tool timeout |
+| B11 | **Delivery** | Email (SMTP via env) and/or Slack webhook. Brief has a link to the console | §10.1 |
+| B12 | **Observability** | `ops.llm_calls(run_id, model, prompt_hash, tokens_in, tokens_out, latency_ms, cost_usd, validator_result)`; `ops.tool_calls`; `ops.runs`. Streamlit ops page with daily cost, p95 latency, validator pass rate, fallback rate | §10.4 |
+| B13 | **Historical replay** | `make replay FROM=2025-03-01 TO=2026-08-31`: runs detectors day by day (no LLM by default); compares to `ground_truth/anomalies.json`; computes precision, recall, lead time (days from anomaly start to first flag). `--narrate-sample 20` narrates 20 random days for citation evals | §10.4 bonus |
+| B14 | **Standalone mode** | `synth/gold_with_anomalies/` generates gold tables directly (same seeded anomalies) so B runs without A. README says which mode a demo uses | Portfolio independence |
+
+**Policy example (`policy.yaml`):**
+
+```yaml
+thresholds:
+  otif_rate:        { warn: 0.92, high: 0.90, consecutive_days: 3 }
+  fill_rate_weight: { warn: 0.97, high: 0.95, consecutive_days: 2 }
+  yield_variance_pct: { warn_abs: 1.5, high_abs: 3.0 }
+  lb_at_risk_within_5d: { high: 2000 }
+seasonality:
+  day_of_week_adjust: true
+  known_holidays: ["2025-11-27", "2025-12-25", "2026-07-04"]
+allowed_actions:
+  otif_drop:        [jira_ticket, internal_update]
+  fill_rate_drop:   [jira_ticket, investigation]
+  yield_variance:   [investigation]
+  inventory_at_risk:[internal_update, jira_ticket]
+limits:
+  max_actions_per_brief: 5
+  suppress_if_open_ticket_days: 7
+```
+
+### 3.5 Evaluation plan
+
+| Measure | Method | Target (acceptance criterion) |
+|---|---|---|
+| **Detection recall / precision** | Replay vs seeded anomalies; noise anomalies count against precision; A5 (holiday decoy) counts as a false positive if flagged HIGH | Recall ≥ 90%, precision ≥ 80% |
+| **Lead time** | Days from anomaly start to first flag | Report median |
+| **Attribution accuracy** | Top-1 driver segment matches seeded cause | ≥ 85% |
+| **Citation coverage** | Claims with a valid `metric_ref` / total claims | 100% (hard gate — validator enforces) |
+| **Numeric consistency** | Claims whose numbers match the pack | ≥ 98% first pass; 100% after validation |
+| **Unsupported-claim rate** | LLM-as-judge on 20 narrated days: "is every sentence supported by the pack?" + your own manual read of 5 | < 2%; manual notes committed |
+| **Fallback rate** | % briefs that fell back to templated | Report; explain each |
+| **Policy gate** | Adversarial test: inject disallowed action types | 100% blocked |
+| **Latency / cost** | p95 per brief; USD per brief from `ops.llm_calls` | Report honestly |
+| **Time to action** | In demo: signal → approved ticket | Report |
+
+### 3.6 Failure cases to demonstrate
+
+| Case | Expected behaviour |
+|---|---|
+| Stale gold (latest date < today − 1) | Brief opens with "Data as of <date>; delivery metrics are N days stale"; affected items marked; no silent narration |
+| LLM invalid JSON | Retry once with error; then templated fallback; `fallback_reason` logged |
+| LLM cites a metric not in the pack | Validator rejects → regenerate → fallback |
+| Jira timeout | Action `FAILED_RETRYABLE`; console shows it; next run retries; alert |
+| Plant manager requests the brief | Sees only their plant's items; leadership items absent from *their* evidence pack, not just hidden in UI |
+| Action outside policy | Blocked by code before approval; logged as `policy_violation` |
+| Metric missing for the day | Item skipped with a freshness note; no invented number |
+| Duplicate run for the same date | Idempotent by `run_date`; second run returns the first |
+
+### 3.7 Five-week build plan
+
+| Week | Build | Definition of done |
+|---|---|---|
+| **6** | Discovery briefs. Scaffold. Gold source (A's tables or `synth/gold_with_anomalies`). Metric SQL layer. `policy.yaml` | `make metrics` populates all daily metric tables; tests green |
+| **7** | Three detectors + severity. Attribution. Replay harness (no LLM) → first precision/recall numbers | Replay report shows ≥ target on seeded anomalies; A5 decoy handled |
+| **8** | Evidence pack. Permission filter. Narration prompt + JSON contract. Validator + regenerate + templated fallback | 20-day narration sample passes citation gate at 100%; fallback path tested |
+| **9** | Action drafting. Policy gate. LangGraph graph with Postgres checkpointer + interrupt. Jira adapter (mock + live). Console: approve/edit/reject. Email/Slack delivery | End-to-end: cron → brief → console → approve → mock Jira ticket; restart mid-approval and resume |
+| **10** | Observability + ops page. Failure-case tests. Full eval → `REPORT.md`. CI. Railway deploy (web + cron). `RUNBOOK.md`. README. Demo | All eight production-level criteria met |
+
+### 3.8 Interview narrative
+
+1. **Why does the LLM never calculate?** Because a wrong number in a brief is worse than no brief. Code computes, the pack carries provenance, and the validator rejects any sentence that can't point to a metric. The model is a writer with a fact-checker standing behind it.
+2. **Why LangGraph here but not in Project A?** A is a fixed pipeline: profile → map → validate → publish. Plain code. B genuinely needs a pause that survives a restart, an edit, and a resume from the same state. That's what a checkpointed graph is for. Smallest abstraction that fits, in both directions.
+3. **Why a templated fallback?** So the brief always ships. A day with no brief is a silent failure; a plainer brief with correct numbers is not.
+4. **How do you know the detector works?** Replay against seeded anomalies with known start dates and causes; report precision, recall, and lead time; show the holiday decoy being down-weighted.
+5. **What would you change before production?** Real Jira/Teams integration with SSO, alert routing and on-call, detector drift monitoring (the baseline itself ages), cost caps, model-change regression suite, and the Project A gold as the only source.
+
+**Interview keywords:** evidence pack · grounded narration · citation validator · numeric consistency · CUSUM / change-point · seasonality adjustment · contribution decomposition · policy gate · interrupt_before · checkpointer · templated fallback · replay evaluation · lead time.
+
 ## 4. Cross-Cutting
 
 ### 4.1 How the two projects tell one story

@@ -27,6 +27,48 @@ seasonality:
                    "2026-05-25", "2026-07-03", "2026-07-04", "2026-09-07"]
   holiday_window_days: 2        # days either side of a holiday that inherit the holiday's allowance
 
+detection:
+  # The noise floors. A detector that flags everything is the same as a detector that flags nothing, so these
+  # decide what is worth a leader's morning — and, like every other number here, they are the business's to
+  # change, not an engineer's.
+  min_baseline_points: 14       # fewer clean days than this in the baseline window → no opinion at all
+  z: { warn: 2.0, high: 3.0 }   # day-of-week adjusted z-score from detect/baseline.py
+  cusum: { k: 0.5, h: 5.0 }     # slack in standard deviations, and the decision interval
+  holiday_max_severity: WARN    # a day inside a holiday window can never be an incident (the A5 decoy)
+  uncorroborated_max_severity: WARN   # the day-over-day detector alone cannot raise an incident: one day is a
+                                      # data point, not a trend. HIGH needs the threshold rule (which requires
+                                      # consecutive days) or CUSUM (which requires an accumulated shift).
+  min_std:
+    # A floor under the standard deviation, so a series that has been flat for a month cannot produce an
+    # enormous z on its first ordinary wobble.
+    default: 0.0
+    otif_rate: 0.02
+    fill_rate_weight: 0.004
+    fill_rate_count: 0.004
+    yield_variance_pct: 0.3
+    inventory_age_days: 0.2
+    lb_at_risk_within_5d: 50.0
+    open_backlog_lines: 5.0
+  min_volume:
+    # Lines, pounds or open lines behind the number. Below this the rate is arithmetic, not information.
+    default: 0.0
+    otif_rate: 8
+    fill_rate_weight: 8
+    fill_rate_count: 8
+    yield_variance_pct: 1000
+    inventory_age_days: 1000
+    lb_at_risk_within_5d: 1000
+  min_magnitude:
+    # How far the metric must have moved from its own expectation before the movement is worth saying out loud.
+    default: 0.0
+    otif_rate: 0.05
+    fill_rate_weight: 0.02
+    fill_rate_count: 0.02
+    yield_variance_pct: 1.0
+    inventory_age_days: 1.0
+    lb_at_risk_within_5d: 500.0
+    open_backlog_lines: 40.0
+
 allowed_actions:
   # anomaly type → the action types a person may be asked to approve. Anything else is rejected in code before
   # approval is requested, and logged as a policy violation.
