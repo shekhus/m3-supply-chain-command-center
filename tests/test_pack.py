@@ -14,7 +14,7 @@ from datetime import date
 import pytest
 
 from app.config import REPO_ROOT
-from detect.config import DetectConfig, load_detect_config
+from detect.config import load_detect_config
 from detect.run import build_series, load_frames
 from metrics.runner import load_policy
 from pack.build import build_pack
@@ -61,7 +61,7 @@ def test_every_reference_an_item_carries_resolves_to_a_fact(world: tuple) -> Non
 
 
 def test_rounding_happens_once_in_code_and_the_display_matches_the_value(world: tuple) -> None:
-    """A model asked to turn 0.74138 into a percentage will sometimes be wrong; it is asked to copy instead."""
+    """A model asked to turn 0.74138 into a percentage is sometimes wrong; it is asked to copy instead."""
     pack = _pack(world)
     for fact in pack.facts.values():
         assert fact.display
@@ -88,7 +88,7 @@ def test_a_rate_change_is_spoken_of_in_points_and_a_variance_is_not_multiplied(w
 
 
 def test_the_prompt_view_contains_no_number_that_is_not_a_fact(world: tuple) -> None:
-    """Principle 1, structurally: the model is handed labels and refs, and the facts it may quote. Nothing else."""
+    """Principle 1, structurally: the model gets labels, refs and the facts it may quote. Nothing else."""
     pack = _pack(world)
     view = pack.for_prompt()
     assert set(view["facts"]) == set(pack.facts)
