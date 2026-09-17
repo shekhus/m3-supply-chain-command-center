@@ -21,7 +21,7 @@ from detect.attribute import Attribution, attribute
 from detect.config import DetectConfig
 from detect.models import Anomaly, Severity
 from detect.run import build_series, detect_range, incidents
-from detect.series import SegmentSeries
+from detect.series import GRAINS, SegmentSeries
 from pack.permissions import DIRECTORY, Audience, Redaction, plants_for
 from pack.schema import DetectorNote, DriverFact, EvidencePack, Fact, PackItem, SourceFreshness, Unit
 
@@ -36,14 +36,14 @@ METRIC_LABELS: dict[str, tuple[str, Unit, str]] = {
     "lb_at_risk_within_5d": ("pounds at risk within five days", "pounds", "inventory_at_risk"),
     "open_backlog_lines": ("open backlog lines", "count", "backlog_build"),
 }
+# Keyed by the column the grain actually carries, not by the metric: a plant x product group fill rate is
+# weighted by `lines`, and calling that "ordered pounds" is a wrong label on a right number — which survives
+# every numeric check and misleads the reader anyway. Found by the narration sample (docs/decisions.md B-008).
 VOLUME_LABELS: dict[str, tuple[str, Unit]] = {
-    "otif_rate": ("order lines", "count"),
-    "on_time_rate": ("order lines", "count"),
-    "fill_rate_count": ("order lines", "count"),
-    "fill_rate_weight": ("ordered pounds", "pounds"),
-    "yield_variance_pct": ("pounds into the line", "pounds"),
-    "inventory_age_days": ("pounds on hand", "pounds"),
-    "lb_at_risk_within_5d": ("pounds on hand", "pounds"),
+    "lines": ("order lines", "count"),
+    "ordered_weight_lb": ("ordered pounds", "pounds"),
+    "input_lb": ("pounds into the line", "pounds"),
+    "on_hand_lb": ("pounds on hand", "pounds"),
     "open_backlog_lines": ("open lines", "count"),
 }
 SOURCE_TABLES = {"delivery metrics": "daily_otif_total", "inventory metrics": "daily_inventory_location",
@@ -114,7 +114,8 @@ def _item(item_id: str, anomaly: Anomaly, frames: dict[str, pd.DataFrame], cfg: 
     direction: Literal["up", "down"] = "down" if anomaly.direction == "down" else "up"
     metric_label, unit, anomaly_type = METRIC_LABELS.get(
         anomaly.metric, (anomaly.metric.replace("_", " "), "count", "otif_drop"))
-    volume_label, volume_unit = VOLUME_LABELS.get(anomaly.metric, ("records", "count"))
+    grain = next((g for g in GRAINS if g.name == anomaly.grain), None)
+    volume_label, volume_unit = VOLUME_LABELS.get(grain.volume if grain else "", ("records", "count"))
     segment_label = _segment_label(anomaly.segment)
     where = f"{segment_label} on {anomaly.metric_date.isoformat()}"
     facts: dict[str, Fact] = {}
