@@ -234,9 +234,15 @@ def load_run(saver: PostgresSaver, deps: GraphDeps, thread_id: str) -> RunView:
     return _view(compiled, thread_id)
 
 
+class UnknownThread(LookupError):
+    """No run with that thread id. A caller asking for one is a 404, not a crash."""
+
+
 def _view(compiled: Any, thread_id: str) -> RunView:  # noqa: ANN401 - CompiledStateGraph
     snapshot = compiled.get_state(_config(thread_id))
     state: BriefState = snapshot.values
+    if not state.get("run_date"):
+        raise UnknownThread(thread_id)
     pack = EvidencePack.model_validate(state["pack"]) if state.get("pack") else None
     brief = Brief.model_validate(state["brief"]) if state.get("brief") else None
     return RunView(

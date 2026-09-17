@@ -46,8 +46,14 @@ class World:
 
 @lru_cache(maxsize=2)
 def load_world(source: str | None = None) -> World:
-    """Built once per process: loading the metrics and their baselines takes seconds and never changes."""
+    """Built once per process: loading the metrics and their baselines takes seconds and never changes.
+
+    `source` overrides `METRICS_SOURCE` for a caller that knows better (a replay, a test); otherwise the
+    deployment decides, because a standalone demo reads the generator's parquet and a deployment reads the
+    tables `make metrics` filled.
+    """
     settings = get_settings()
+    source = source or settings.metrics_source
     cfg = load_detect_config(settings.policy_file)
     policy = load_policy(settings.policy_file)
     frames = load_frames(_metrics_source(settings, source))

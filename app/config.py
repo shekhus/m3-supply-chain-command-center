@@ -55,15 +55,37 @@ def _parse_api_keys(raw: str) -> dict[str, str]:
     return keys
 
 
+def _parse_audiences(raw: str) -> dict[str, str]:
+    """"key:audience,key:audience" → {key: audience}.
+
+    Which brief a request may see is decided by the key it presents, never by a parameter. A plant manager's
+    key returns a plant manager's brief whatever the URL asks for — the alternative is an audience field that
+    anybody can edit, which would make the permission filter decorative.
+    """
+    out: dict[str, str] = {}
+    for pair in raw.split(","):
+        if ":" not in pair:
+            continue
+        key, audience = pair.split(":", 1)
+        if key.strip() and audience.strip():
+            out[key.strip()] = audience.strip()
+    return out
+
+
 @dataclass(frozen=True)
 class Settings:
     data_dir: Path = field(default_factory=lambda: REPO_ROOT / os.environ.get("DATA_DIR", "data"))
     database_url: str = field(
         default_factory=lambda: normalise_database_url(os.environ.get("DATABASE_URL", "")))
     api_keys: dict[str, str] = field(default_factory=lambda: _parse_api_keys(os.environ.get("API_KEYS", "")))
+    api_audiences: dict[str, str] = field(
+        default_factory=lambda: _parse_audiences(os.environ.get("API_AUDIENCES", "")))
     policy_file: Path = field(
         default_factory=lambda: REPO_ROOT / os.environ.get("POLICY_FILE", "policy.yaml"))
     gold_source: str = field(default_factory=lambda: os.environ.get("GOLD_SOURCE", "standalone"))
+    # Where the daily metrics are read from: "postgres" (a deployment that has run `make metrics`) or
+    # "parquet" (the standalone demo, and the tests, reading what the generator wrote).
+    metrics_source: str = field(default_factory=lambda: os.environ.get("METRICS_SOURCE", "postgres"))
     llm_provider: str = field(default_factory=lambda: os.environ.get("LLM_PROVIDER", "none"))
     llm_model: str = field(default_factory=lambda: os.environ.get("LLM_MODEL", "claude-sonnet-5"))
     llm_price_in: float = field(default_factory=lambda: float(os.environ.get("LLM_PRICE_IN_PER_MTOK", "0")))

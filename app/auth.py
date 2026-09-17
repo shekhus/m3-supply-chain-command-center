@@ -16,17 +16,26 @@ ROLES: tuple[Role, ...] = ("viewer", "analyst", "owner")
 
 @dataclass(frozen=True)
 class Principal:
+    """Who is asking, and which brief they are entitled to.
+
+    `audience` comes from the key, never from the request. A request that could name its own audience would
+    make the permission filter in `pack/permissions.py` decorative — the filter is only worth having if the
+    caller cannot choose what it filters to.
+    """
+
     role: Role
+    audience: str = "vp"
 
 
 def current_principal(
     settings: Annotated[Settings, Depends(get_settings)],
     x_api_key: Annotated[str | None, Header()] = None,
 ) -> Principal:
-    role = settings.api_keys.get(x_api_key or "")
+    key = x_api_key or ""
+    role = settings.api_keys.get(key)
     if role not in ROLES:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "missing or unknown X-API-Key")
-    return Principal(role=role)  # type: ignore[arg-type]
+    return Principal(role=role, audience=settings.api_audiences.get(key, "vp"))  # type: ignore[arg-type]
 
 
 def require(*roles: Role) -> Callable[[Principal], Principal]:
