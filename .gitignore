@@ -10,3 +10,4 @@ evals/results/*.json
 !evals/results/.gitkeep
 *.sqlite
 backups/
+evals/CI_REPORT.md

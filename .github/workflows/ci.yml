@@ -34,9 +34,11 @@ jobs:
     env:
       DATABASE_URL: postgresql+psycopg://m3:m3@localhost:5432/m3cc
       REQUIRE_POSTGRES: "1"          # a missing database fails the build instead of skipping tests (D-009)
-      LLM_PROVIDER: none             # no model calls in CI: narration evals come from saved runs
+      LLM_PROVIDER: none             # no model calls in CI: it has no key, and a build should not spend
       JIRA_MODE: mock
+      METRICS_SOURCE: parquet        # CI has the generated metrics, not a database that has run `make metrics`
       API_KEYS: viewer:ci-viewer,analyst:ci-analyst,owner:ci-owner
+      API_AUDIENCES: ci-viewer:vp,ci-analyst:vp,ci-owner:vp
     steps:
       - uses: actions/checkout@v7
 
@@ -60,9 +62,13 @@ jobs:
       - name: Tests
         run: python -m pytest -p no:cacheprovider
 
+      # --skip-narration on purpose: the narration numbers in the committed evals/REPORT.md come from real
+      # model calls, which CI has no key for and should not pay for. Everything deterministic is checked
+      # here, strictly: detection against the answer key, the policy gate under adversarial input, and the
+      # eight failure cases.
       - name: Replay and deterministic evals (strict)
-        if: hashFiles('evals/run_evals.py') != ''       # lands with the replay harness (week 7)
-        run: python evals/run_evals.py --strict
+        if: hashFiles('evals/run_evals.py') != ''
+        run: python evals/run_evals.py --strict --skip-narration --report evals/CI_REPORT.md
 
       - name: Upload evaluation report
         if: always()
@@ -70,7 +76,8 @@ jobs:
         with:
           name: eval-report
           path: |
-            evals/REPORT.md
+            evals/CI_REPORT.md
+            evals/REPLAY.md
             evals/results/*.json
           if-no-files-found: ignore
 
