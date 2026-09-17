@@ -41,4 +41,6 @@ ignore = ["B008"]
 [tool.mypy]
 python_version = "3.12"
 ignore_missing_imports = true
-exclude = ['\.venv', 'data']
+# Two conftest.py files are ordinary in pytest and meaningless to mypy, which refuses to see the same
+# module name twice; the nested one only puts tests/ on sys.path.
+exclude = ['\.venv', 'data', 'tests/failure_cases/conftest\.py']

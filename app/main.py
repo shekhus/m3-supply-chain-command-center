@@ -10,10 +10,11 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 
-from app.routers import brief
+from app.routers import brief, ops
 
 app = FastAPI(title="m3-supply-chain-command-center", version="0.1.0")
 app.include_router(brief.router)
+app.include_router(ops.router)
 
 
 @app.get("/", include_in_schema=False)

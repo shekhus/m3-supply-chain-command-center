@@ -101,12 +101,19 @@ def show_action(action: dict, thread_id: str) -> None:
 
 def main() -> None:
     st.set_page_config(page_title="Supply chain command center", page_icon="📋", layout="centered")
-    st.title("Morning brief")
 
     if not API_KEY:
         st.warning("CONSOLE_API_KEY is not set, so this console cannot talk to the API.")
         st.stop()
 
+    with st.sidebar:
+        page = st.radio("Page", ["Morning brief", "Ops"], label_visibility="collapsed")
+    if page == "Ops":
+        st.title("Ops")
+        ops_page()
+        return
+
+    st.title("Morning brief")
     with st.sidebar:
         st.header("Brief")
         run_date = st.date_input("Date", value=date.today())
@@ -156,3 +163,55 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+def ops_page() -> None:
+    """The ops view: is this working, and what needs a person?
+
+    Kept in the same console as the brief on purpose. An operations page nobody opens is a page that is
+    wrong for a month before anybody notices; this one is two clicks from where approvals happen.
+    """
+    summary = api("GET", "/ops/summary")
+
+    if summary["alerts"]:
+        for alert in summary["alerts"]:
+            line = f"**{alert['name']}** — {alert['detail']}  \n_see docs/RUNBOOK.md § {alert['name']}_"
+            st.error(line) if alert["severity"] == "HIGH" else st.warning(line)
+    else:
+        st.success("No alerts. Briefs are running, the model is being used, nothing is stuck.")
+
+    left, middle, right = st.columns(3)
+    left.metric("Briefs in window", sum(r["briefs"] for r in summary["narration"]) or 0)
+    middle.metric("Waiting for approval", len(summary["pending_approvals"]))
+    right.metric("Model cost (window)", f"${summary['cost_usd_window']:.4f}")
+
+    st.subheader("Runs")
+    st.dataframe(summary["runs"], width="stretch")
+
+    if summary["narration"]:
+        st.subheader("Narration")
+        st.caption("How often the model's answer shipped as written, was corrected once, or was replaced "
+                   "by the template.")
+        st.dataframe(summary["narration"], width="stretch")
+
+    if summary["model_usage"]:
+        st.subheader("Model usage and cost")
+        st.dataframe(summary["model_usage"], width="stretch")
+
+    if summary["pending_approvals"]:
+        st.subheader("Waiting for a person")
+        st.dataframe(summary["pending_approvals"], width="stretch")
+
+    if summary["action_failures"]:
+        st.subheader("Actions that failed")
+        st.caption("FAILED_RETRYABLE is picked up by the next run; FAILED needs somebody to look.")
+        st.dataframe(summary["action_failures"], width="stretch")
+
+    if summary["policy_refusals"]:
+        st.subheader("What policy refused")
+        st.caption("Shown so a gate that has drifted from what the business needs is visible.")
+        st.dataframe(summary["policy_refusals"], width="stretch")
+
+    if summary["delivery"]:
+        st.subheader("Delivery")
+        st.dataframe(summary["delivery"], width="stretch")
