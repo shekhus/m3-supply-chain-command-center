@@ -31,7 +31,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal, TypedDict, cast
 
 import psycopg
 from langchain_core.runnables import RunnableConfig
@@ -201,12 +201,18 @@ class RunView:
 
 
 def start_run(saver: PostgresSaver, deps: GraphDeps, run_date: date, audience: str) -> RunView:
-    """Run up to the approval pause. Nothing has touched the outside world when this returns."""
+    """Run up to the approval pause. Nothing has touched the outside world when this returns.
+
+    The record is written *at the pause*, not only at the end. A brief that is waiting for somebody has
+    already proposed things, and tomorrow's duplicate suppression has to see them — a run that persists
+    itself only after approval is invisible for exactly as long as it is waiting.
+    """
     compiled = build_graph(deps).compile(checkpointer=saver, interrupt_before=["execute"])
     thread = thread_id_for(run_date, audience)
     initial: BriefState = {"thread_id": thread, "run_date": run_date.isoformat(), "audience": audience,
                            "decisions": [], "executed": [], "status": "PENDING_APPROVAL", "error": None}
     compiled.invoke(initial, _config(thread))
+    deps.record(cast(BriefState, compiled.get_state(_config(thread)).values))
     return _view(compiled, thread)
 
 

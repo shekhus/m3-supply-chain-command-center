@@ -64,9 +64,14 @@ CREATE TABLE ops.decisions (
 CREATE INDEX decisions_action_idx ON ops.decisions (action_id, decided_at DESC);
 
 -- Tickets the mock Jira adapter "created", so a demo has somewhere to point (JIRA_MODE=mock).
+--
+-- `action_id` is deliberately NOT a foreign key. This table stands in for a system outside this database,
+-- and a real tracker has no referential integrity with our rows: it accepts a ticket whether or not we have
+-- finished writing our own record, and it keeps that ticket if we delete ours. Modelling it with a foreign
+-- key made the mock fail in a way the live adapter never could (docs/decisions.md B-011).
 CREATE TABLE ops.mock_jira (
     key         text        PRIMARY KEY,
-    action_id   text        REFERENCES ops.actions (action_id) ON DELETE SET NULL,
+    action_id   text,
     summary     text        NOT NULL,
     description text        NOT NULL,
     assignee    text,
