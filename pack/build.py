@@ -90,7 +90,8 @@ def build_pack(frames: dict[str, pd.DataFrame], cfg: DetectConfig, policy: dict,
         facts.update(item_facts)
 
     return EvidencePack(
-        run_date=run_date, generated_at=datetime.now(UTC), gold_source=gold_source, audience=reader.role,
+        run_date=run_date, generated_at=datetime.now(UTC), gold_source=gold_source,
+        audience=reader.user, role=reader.role,
         plants=sorted(plants or []), items=items, facts=facts, freshness=freshness, any_stale=any_stale,
         baseline_days=cfg.baseline_days, items_considered=len(allowed), items_cap=cap,
         is_holiday=cfg.is_holiday(run_date), calendar_note=_calendar_note(cfg, run_date),

@@ -117,7 +117,8 @@ class EvidencePack(BaseModel):
     run_date: date
     generated_at: datetime
     gold_source: str
-    audience: str                       # the role this pack was built for (B-8)
+    audience: str                       # *who* this pack is for ("vp", "plt01") — the id used everywhere
+    role: str = "leadership"            # *what* they are; the permission rules read this, people read the id
     plants: list[str]                   # the plants this audience may see; empty means all
     items: list[PackItem]
     facts: dict[str, Fact]

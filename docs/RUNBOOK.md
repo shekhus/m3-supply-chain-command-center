@@ -124,6 +124,43 @@ without all four, rather than quietly writing to the mock and looking like it wo
 
 ---
 
+## The deployment
+
+Railway project `m3-supply-chain-command-center`, four services from one image:
+
+| Service | Role | What it is |
+|---|---|---|
+| `Postgres` | — | the database: `ops`, `metrics`, `gold`, `graph_checkpoints` |
+| `app` | `APP_ROLE` unset | the API, at https://app-production-d624.up.railway.app |
+| `console` | `APP_ROLE=console` | the Streamlit console, at https://console-production-c572.up.railway.app |
+| `cron` | `APP_ROLE=cron` | runs `scripts/morning.py` once and exits — a cron service that stays up is one that ran once |
+
+`METRICS_SOURCE=postgres`, `JIRA_MODE=mock`, `DELIVERY_MODE=none`. The image generates its own gold at build
+time, so a deployment needs no data uploaded — but the metric *tables* have to be filled once:
+
+```
+railway ssh --service app "python scripts/run_metrics.py"
+```
+
+`railway run` is the wrong tool for that: it runs the command on **your** machine with the deployment's
+variables, and `postgres.railway.internal` is not reachable from there. `railway ssh` runs it inside the
+container, which is where the private network is. From a workstation with a public database URL, the
+equivalent is `python scripts/run_metrics.py --database-url <public url>` — the repo's `.env` wins over the
+shell by design, so the URL has to be passed rather than exported.
+
+### Two things the CLI cannot do
+
+1. **The cron schedule.** Railway sets it per service in the dashboard: `cron` → Settings → Cron Schedule,
+   e.g. `0 6 * * 1-5` for weekday mornings. Without it the service deploys, runs once and stops.
+2. **Deploy on green.** CI has a deploy job gated on `vars.RAILWAY_DEPLOY == 'true'` and
+   `secrets.RAILWAY_TOKEN`. Create a project token in the dashboard (Settings → Tokens), then:
+   ```
+   gh secret set RAILWAY_TOKEN        # paste the token when prompted
+   gh variable set RAILWAY_DEPLOY --body true
+   ```
+   Set the variable *after* the secret: turning it on without a working token makes every push to `main`
+   fail at the deploy step.
+
 ## What to check after a deploy
 
 ```

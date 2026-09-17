@@ -26,11 +26,16 @@ def main() -> int:
     parser.add_argument("--from", dest="from_date", type=date.fromisoformat, help="first metric date")
     parser.add_argument("--to", dest="to_date", type=date.fromisoformat, help="last metric date")
     parser.add_argument("--skip-load", action="store_true", help="do not reload gold from data/gold")
+    # For loading a deployment from a workstation: the repo's .env wins over the shell by design, so a URL
+    # has to be passed explicitly rather than exported (docs/RUNBOOK.md, "Rebuild the metrics").
+    parser.add_argument("--database-url", default=None,
+                        help="override the configured database (use the platform's public URL)")
     args = parser.parse_args()
     settings = get_settings()
     try:
-        require_postgres(settings.database_url)
-        engine = create_engine(settings.database_url)
+        database_url = args.database_url or settings.database_url
+        require_postgres(database_url)
+        engine = create_engine(database_url)
         source = "external" if args.skip_load else settings.gold_source
         result = run(engine, settings.policy_file, settings.gold_dir, source, args.from_date, args.to_date)
         engine.dispose()
